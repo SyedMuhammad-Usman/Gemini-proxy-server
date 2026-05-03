@@ -15,7 +15,7 @@ load_dotenv()
 app = FastAPI()
 
 usage_count = 0
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 
 
 SingleClass = Literal["waste", "glass", "metal", "plastic", "textile", "wood"]
@@ -205,24 +205,55 @@ async def classify_single_object(
     image_bytes = await read_image(image)
 
     prompt = """
-You are an image classification API.
+You are a strict image-classification API for waste/material sorting.
 
-Task:
-Classify the main single object in the image.
+Your task:
+Analyze the image and classify ONLY the main single object visible in the image.
 
-Rules:
+Core rules:
+- Focus on ONE main object only.
+- Ignore background, hands, tables, packaging, shadows, text, logos, and secondary objects.
+- If multiple objects are visible, choose the largest/clearest/most central object.
+- Do NOT describe the object.
+- Do NOT return the object name.
 - Return ONLY valid JSON.
-- Do not use markdown.
-- Do not explain.
-- Use only these classes:
-  waste, glass, metal, plastic, textile, wood
-- "class" and "material" must be one of those exact values.
-- "recyclable" must be true or false.
-- "confidence" must be an honest visual confidence estimate from 0 to 100.
-- Do not return object name.
-- Do not add extra keys.
+- Do NOT use markdown.
+- Do NOT add explanations.
+- Do NOT add extra keys.
+- The JSON must match the schema exactly.
 
-JSON schema:
+Allowed classes:
+- e waste
+- glass
+- metal
+- plastic
+- textile
+- wood
+
+Classification rules:
+- "class" must be exactly one of the allowed classes.
+- "material" must be exactly the same value as "class".
+- Never output any class outside the allowed list.
+- If the object contains multiple materials, classify by the dominant visible material.
+- If the object is an electronic device, cable, charger, battery, circuit board, remote, phone, keyboard, mouse, appliance, or gadget, classify it as "e waste" even if plastic or metal is visible.
+- If uncertain, choose the most likely class based on visual evidence and lower the confidence.
+
+Recyclability rules:
+- Set "recyclable": true if the material is commonly recyclable or recoverable.
+- Set "recyclable": false if the object appears contaminated, mixed in a way that is not easily recyclable, or unlikely to be accepted in standard recycling.
+- For "e waste", use true because it is recyclable through specialized e-waste recycling.
+- For clean glass, metal, plastic, wood, or textile, use true when visually reasonable.
+- Use false when visual condition suggests it should not be recycled.
+
+Confidence rules:
+- "confidence" must be an integer from 0 to 100.
+- Estimate confidence honestly from visual clarity.
+- Use 90-100 when the material is obvious.
+- Use 70-89 when mostly clear but not perfect.
+- Use 40-69 when partially unclear, obstructed, or ambiguous.
+- Use below 40 only when the image is very unclear.
+
+Required output format:
 {
   "confidence": 80,
   "class": "plastic",
@@ -257,25 +288,63 @@ async def classify_multiple_objects(
     image_bytes = await read_image(image)
 
     prompt = """
-You are a multiple object detection and classification API.
+You are a strict multiple-object waste/material detection and classification API.
 
-Task:
-Detect visible objects in the image and classify each one.
+Your task:
+Analyze the image, detect the clear visible objects, and classify each detected object by its dominant visible material.
 
-Rules:
-- Return ONLY valid JSON.
-- Do not use markdown.
-- Do not explain.
-- Detect up to 10 clear objects.
-- Use only these classes:
-  paper, biodegradable, plastic, glass, metal, cardboard
-- For every detected object, "class" and "material" must be one of those exact values.
-- "object_count" must equal the number of objects in the objects array.
-- "confidence" must be an honest visual confidence estimate from 0 to 100.
+Core detection rules:
+- Detect up to 10 clear objects only.
+- Count each separate visible object as one object.
+- If there are more than 10 objects, choose the 10 largest, clearest, and most central objects.
+- Ignore background, shadows, reflections, logos, printed text, hands, tables, floors, walls, and tiny unclear fragments.
 - Do not return object names.
-- Do not add extra keys.
+- Do not describe the objects.
+- Do not include bounding boxes.
+- Do not include explanations.
+- Return ONLY valid JSON.
+- Do NOT use markdown.
+- Do NOT add extra keys.
 
-JSON schema:
+Allowed classes:
+- paper/wood
+- biodegradable
+- plastic
+- glass
+- metal
+- cardboard
+
+Classification rules:
+- For every object, "class" must be exactly one of the allowed classes.
+- For every object, "material" must be exactly the same value as "class".
+- Never output any class outside the allowed list.
+- Classify each object by its dominant visible material.
+- If an object has mixed materials, choose the material that appears most visually dominant.
+- Use "paper/wood" for paper, wood, books, wooden items, paper sheets, napkins, and similar paper/wood-based objects.
+- Use "cardboard" only for cardboard boxes, cartons, corrugated board, and thick packaging board.
+- Use "biodegradable" for food waste, leaves, plants, organic scraps, fruit, vegetables, and natural compostable matter.
+- Use "plastic" for bottles, wrappers, bags, containers, caps, packaging, and synthetic plastic items.
+- Use "glass" for glass bottles, jars, cups, broken glass, and transparent/reflective glass objects.
+- Use "metal" for cans, foil, tins, tools, metal containers, and metallic objects.
+- If uncertain, choose the most likely class based on visual evidence and lower the confidence.
+
+Counting rules:
+- "object_count" must equal the exact number of objects in the "objects" array.
+- If no clear object is visible, return:
+{
+  "object_count": 0,
+  "objects": []
+}
+
+Confidence rules:
+- "confidence" must be an integer from 0 to 100.
+- Estimate confidence honestly from visual clarity.
+- Use 90-100 when the object and material are obvious.
+- Use 70-89 when mostly clear but not perfect.
+- Use 40-69 when partially unclear, obstructed, or ambiguous.
+- Use below 40 only when the object is very unclear.
+
+Required output format:
 {
   "object_count": 2,
   "objects": [
@@ -322,23 +391,57 @@ async def classify_food(
     image_bytes = await read_image(image)
 
     prompt = """
-You are a food waste classification API.
+You are a strict food waste classification API.
 
-Task:
-Classify the food in the image as waste or non_waste.
+Your task:
+Analyze the image and classify the visible food as either "waste" or "non_waste" based on whether it appears spoiled, rotten, expired, contaminated, discarded, or still safe/usable.
 
-Rules:
+Core rules:
 - Return ONLY valid JSON.
-- Do not use markdown.
-- Do not explain.
-- "food" must be exactly one of:
-  waste, non_waste
-- Use "waste" if food looks spoiled, thrown away, dirty, rotten, leftover waste, or not usable.
-- Use "non_waste" if food looks fresh, clean, edible, packaged, or usable.
-- "confidence" must be an honest visual confidence estimate from 0 to 100.
-- Do not add extra keys.
+- Do NOT use markdown.
+- Do NOT explain.
+- Do NOT describe the food.
+- Do NOT return the food name.
+- Do NOT add extra keys.
+- The output must match the JSON schema exactly.
 
-JSON schema:
+Allowed values:
+- "food" must be exactly one of:
+  - waste
+  - non_waste
+
+Classification meaning:
+- Use "waste" when the food appears bad, spoiled, rotten, expired, moldy, contaminated, dirty, discarded, leftover waste, unsafe, inedible, or not usable.
+- Use "non_waste" when the food appears fresh, clean, edible, packaged, preserved, properly stored, cooked and usable, or generally safe to eat.
+
+Visual signs of "waste":
+- Mold, fungus, unusual spots, slime, decay, discoloration, bruising, rotting, drying out, bad texture, leaking, broken-down shape, spoiled appearance, or contamination.
+- Food lying in trash, on the floor, mixed with garbage, dirty surfaces, insects, or other waste.
+- Leftover food that appears discarded, messy, old, or no longer intended for eating.
+- Packaging that appears damaged, leaking, dirty, swollen, opened for too long, or unsafe.
+
+Visual signs of "non_waste":
+- Fresh fruits, vegetables, bread, meals, snacks, packaged food, sealed items, clean leftovers, or prepared food that appears edible and usable.
+- Food on a plate, tray, package, shelf, container, or clean surface with no visible spoilage.
+- Slight cosmetic imperfections do NOT automatically mean waste unless the food clearly looks spoiled or unsafe.
+
+Important decision rules:
+- Classify only the visible food item or main group of food items.
+- Ignore background, plates, bowls, containers, hands, tables, labels, and unrelated objects.
+- If multiple food items are visible, classify the overall food condition based on the dominant visible food.
+- If some food looks spoiled and some looks fresh, choose the class that best represents the majority of visible food.
+- If the image is unclear, choose the most likely class based on visible evidence and lower the confidence.
+- Do not assume food is expired from packaging alone unless there is visible evidence such as damage, leaking, swelling, contamination, or clear spoilage.
+
+Confidence rules:
+- "confidence" must be an integer from 0 to 100.
+- Estimate confidence honestly from visual clarity and strength of evidence.
+- Use 90-100 when the food condition is obvious.
+- Use 70-89 when mostly clear but not perfect.
+- Use 40-69 when partially unclear, obstructed, mixed, or ambiguous.
+- Use below 40 only when the image is very unclear.
+
+Required output format:
 {
   "food": "waste",
   "confidence": 80
