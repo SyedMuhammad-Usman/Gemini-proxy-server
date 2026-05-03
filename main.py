@@ -205,20 +205,25 @@ async def classify_single_object(
     image_bytes = await read_image(image)
 
     prompt = """
-You are a strict image-classification API for waste/material sorting.
+You are a strict single-object image classification API for waste/material sorting.
 
 Your task:
-Analyze the image and classify ONLY the main single object visible in the image.
+Analyze the image, identify the main visible object internally, then classify that object into exactly one of the allowed material classes.
+
+Important:
+You must first understand what the object is, but you must NOT output the object name.
+Only output the final material class in JSON.
 
 Core rules:
 - Focus on ONE main object only.
-- Ignore background, hands, tables, packaging, shadows, text, logos, and secondary objects.
-- If multiple objects are visible, choose the largest/clearest/most central object.
+- Identify the main object internally before deciding the class.
+- The main object is usually the largest, clearest, most central, or most visually important object.
+- Ignore background, hands, tables, floors, shadows, logos, labels, text, and secondary objects.
 - Do NOT describe the object.
 - Do NOT return the object name.
 - Return ONLY valid JSON.
 - Do NOT use markdown.
-- Do NOT add explanations.
+- Do NOT explain.
 - Do NOT add extra keys.
 - The JSON must match the schema exactly.
 
@@ -234,23 +239,30 @@ Classification rules:
 - "class" must be exactly one of the allowed classes.
 - "material" must be exactly the same value as "class".
 - Never output any class outside the allowed list.
-- If the object contains multiple materials, classify by the dominant visible material.
-- If the object is an electronic device, cable, charger, battery, circuit board, remote, phone, keyboard, mouse, appliance, or gadget, classify it as "e waste" even if plastic or metal is visible.
+- First identify what the object is, then map it to the closest allowed material class.
+- If the object is made of paper, sticky notes, cardboard-like paper, notebook paper, books, napkins, tissues, paper cups, or other paper-based material, classify it as "wood" because paper comes from wood and there is no separate paper class.
+- If the object is made of wood, plywood, bamboo, paper, or paper-derived material, classify it as "wood".
+- If the object is an electronic device, cable, charger, battery, circuit board, phone, keyboard, mouse, remote, appliance, or gadget, classify it as "e waste" even if plastic or metal is visible.
+- If the object is a bottle, container, wrapper, bag, packaging, cap, synthetic item, or clearly plastic-based object, classify it as "plastic".
+- If the object is a glass bottle, jar, cup, window piece, mirror piece, or transparent/reflective glass object, classify it as "glass".
+- If the object is a can, foil, tin, tool, metal container, wire, screw, or metallic object, classify it as "metal".
+- If the object is clothing, fabric, cloth, towel, rope, carpet, bag made of fabric, or soft woven material, classify it as "textile".
+- If an object contains multiple materials, classify it by the dominant visible material.
 - If uncertain, choose the most likely class based on visual evidence and lower the confidence.
 
 Recyclability rules:
 - Set "recyclable": true if the material is commonly recyclable or recoverable.
-- Set "recyclable": false if the object appears contaminated, mixed in a way that is not easily recyclable, or unlikely to be accepted in standard recycling.
+- Set "recyclable": false if the object appears contaminated, dirty, mixed in a non-recyclable way, or unlikely to be accepted in standard recycling.
 - For "e waste", use true because it is recyclable through specialized e-waste recycling.
 - For clean glass, metal, plastic, wood, or textile, use true when visually reasonable.
-- Use false when visual condition suggests it should not be recycled.
+- Use false when the visual condition suggests it should not be recycled.
 
 Confidence rules:
 - "confidence" must be an integer from 0 to 100.
-- Estimate confidence honestly from visual clarity.
-- Use 90-100 when the material is obvious.
+- Estimate confidence honestly from object clarity and material certainty.
+- Use 90-100 when the object and material are obvious.
 - Use 70-89 when mostly clear but not perfect.
-- Use 40-69 when partially unclear, obstructed, or ambiguous.
+- Use 40-69 when partially unclear, obstructed, mixed-material, or ambiguous.
 - Use below 40 only when the image is very unclear.
 
 Required output format:
@@ -288,23 +300,28 @@ async def classify_multiple_objects(
     image_bytes = await read_image(image)
 
     prompt = """
-You are a strict multiple-object waste/material detection and classification API.
+You are a strict multiple-object image detection and material classification API for waste/material sorting.
 
 Your task:
-Analyze the image, detect the clear visible objects, and classify each detected object by its dominant visible material.
+Analyze the image, detect the clear visible objects, identify each object internally, then classify each detected object into exactly one of the allowed material classes.
+
+Important:
+You must first understand what each object is, but you must NOT output object names.
+Only output the final material class for each object in JSON.
 
 Core detection rules:
-- Detect up to 10 clear objects only.
+- Detect up to 10 clear visible objects only.
 - Count each separate visible object as one object.
-- If there are more than 10 objects, choose the 10 largest, clearest, and most central objects.
-- Ignore background, shadows, reflections, logos, printed text, hands, tables, floors, walls, and tiny unclear fragments.
-- Do not return object names.
-- Do not describe the objects.
-- Do not include bounding boxes.
-- Do not include explanations.
+- If there are more than 10 objects, choose the 10 largest, clearest, most central, or most visually important objects.
+- Ignore background, hands, tables, floors, walls, shadows, reflections, logos, printed text, and tiny unclear fragments.
+- Do NOT return object names.
+- Do NOT describe the objects.
+- Do NOT include bounding boxes.
+- Do NOT explain.
 - Return ONLY valid JSON.
 - Do NOT use markdown.
 - Do NOT add extra keys.
+- The JSON must match the schema exactly.
 
 Allowed classes:
 - paper/wood
@@ -318,18 +335,24 @@ Classification rules:
 - For every object, "class" must be exactly one of the allowed classes.
 - For every object, "material" must be exactly the same value as "class".
 - Never output any class outside the allowed list.
+- First identify what each object is, then map it to the closest allowed material class.
 - Classify each object by its dominant visible material.
 - If an object has mixed materials, choose the material that appears most visually dominant.
-- Use "paper/wood" for paper, wood, books, wooden items, paper sheets, napkins, and similar paper/wood-based objects.
-- Use "cardboard" only for cardboard boxes, cartons, corrugated board, and thick packaging board.
-- Use "biodegradable" for food waste, leaves, plants, organic scraps, fruit, vegetables, and natural compostable matter.
-- Use "plastic" for bottles, wrappers, bags, containers, caps, packaging, and synthetic plastic items.
-- Use "glass" for glass bottles, jars, cups, broken glass, and transparent/reflective glass objects.
-- Use "metal" for cans, foil, tins, tools, metal containers, and metallic objects.
-- If uncertain, choose the most likely class based on visual evidence and lower the confidence.
+
+Material mapping rules:
+- Use "paper/wood" for paper, sticky notes, sheets, newspapers, books, notebooks, receipts, napkins, tissues, wooden items, bamboo items, plywood, paper cups, and general paper-based or wood-based objects.
+- Use "cardboard" only for cardboard boxes, cartons, corrugated board, thick packaging board, delivery boxes, cereal boxes, and similar cardboard packaging.
+- Use "biodegradable" for food waste, fruit, vegetables, leaves, plants, flowers, organic scraps, compostable natural matter, and other biological/organic waste.
+- Use "plastic" for plastic bottles, wrappers, bags, containers, caps, straws, plastic packaging, synthetic objects, and polymer-based items.
+- Use "glass" for glass bottles, jars, cups, broken glass, mirrors, and transparent or reflective glass objects.
+- Use "metal" for cans, foil, tins, tools, screws, wires, metal containers, aluminum items, steel items, and metallic objects.
+- If the object is paper-like but not thick cardboard, classify it as "paper/wood".
+- If the object is thick packaging board or a box/carton, classify it as "cardboard".
+- If uncertain, choose the most likely class based on visible evidence and lower the confidence.
 
 Counting rules:
 - "object_count" must equal the exact number of objects in the "objects" array.
+- Each object in the array must represent one detected visible object.
 - If no clear object is visible, return:
 {
   "object_count": 0,
@@ -338,10 +361,10 @@ Counting rules:
 
 Confidence rules:
 - "confidence" must be an integer from 0 to 100.
-- Estimate confidence honestly from visual clarity.
+- Estimate confidence honestly from object clarity and material certainty.
 - Use 90-100 when the object and material are obvious.
 - Use 70-89 when mostly clear but not perfect.
-- Use 40-69 when partially unclear, obstructed, or ambiguous.
+- Use 40-69 when partially unclear, obstructed, mixed-material, or ambiguous.
 - Use below 40 only when the object is very unclear.
 
 Required output format:
