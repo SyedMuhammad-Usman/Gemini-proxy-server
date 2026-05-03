@@ -32,7 +32,6 @@ class SingleObjectResult(BaseModel):
 
     confidence: int = Field(ge=0, le=100)
     class_: SingleClass = Field(alias="class")
-    object: str
     material: SingleClass
     recyclable: bool
 
@@ -42,7 +41,6 @@ class DetectedObject(BaseModel):
 
     confidence: int = Field(ge=0, le=100)
     class_: MultiClass = Field(alias="class")
-    object: str
     material: MultiClass
 
 
@@ -219,16 +217,15 @@ Rules:
 - Use only these classes:
   waste, glass, metal, plastic, textile, wood
 - "class" and "material" must be one of those exact values.
-- "object" should be the visible object name, like "mouse", "bottle", "shirt", "chair".
 - "recyclable" must be true or false.
 - "confidence" must be an honest visual confidence estimate from 0 to 100.
-- Do not generate random confidence.
+- Do not return object name.
+- Do not add extra keys.
 
 JSON schema:
 {
   "confidence": 80,
   "class": "plastic",
-  "object": "mouse",
   "material": "plastic",
   "recyclable": true
 }
@@ -263,7 +260,7 @@ async def classify_multiple_objects(
 You are a multiple object detection and classification API.
 
 Task:
-Detect the visible objects in the image and classify each one.
+Detect visible objects in the image and classify each one.
 
 Rules:
 - Return ONLY valid JSON.
@@ -273,10 +270,10 @@ Rules:
 - Use only these classes:
   paper, biodegradable, plastic, glass, metal, cardboard
 - For every detected object, "class" and "material" must be one of those exact values.
-- "object" should be the visible object name.
 - "object_count" must equal the number of objects in the objects array.
 - "confidence" must be an honest visual confidence estimate from 0 to 100.
-- Do not generate random confidence.
+- Do not return object names.
+- Do not add extra keys.
 
 JSON schema:
 {
@@ -285,13 +282,11 @@ JSON schema:
     {
       "confidence": 82,
       "class": "plastic",
-      "object": "plastic bottle",
       "material": "plastic"
     },
     {
       "confidence": 76,
       "class": "cardboard",
-      "object": "box",
       "material": "cardboard"
     }
   ]
@@ -341,7 +336,7 @@ Rules:
 - Use "waste" if food looks spoiled, thrown away, dirty, rotten, leftover waste, or not usable.
 - Use "non_waste" if food looks fresh, clean, edible, packaged, or usable.
 - "confidence" must be an honest visual confidence estimate from 0 to 100.
-- Do not generate random confidence.
+- Do not add extra keys.
 
 JSON schema:
 {
