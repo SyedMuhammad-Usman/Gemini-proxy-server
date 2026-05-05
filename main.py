@@ -15,7 +15,7 @@ load_dotenv()
 app = FastAPI()
 
 usage_count = 0
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 
 SingleClass = Literal["waste", "glass", "metal", "plastic", "textile", "wood"]
