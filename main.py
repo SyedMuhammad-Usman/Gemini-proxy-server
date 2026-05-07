@@ -1,12 +1,9 @@
-import json
 import os
-import re
 from datetime import datetime
-from typing import Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File
-from pydantic import BaseModel, Field, ConfigDict, ValidationError
+from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
@@ -18,17 +15,8 @@ usage_count = 0
 GEMINI_MODEL = "gemini-2.5-flash"
 
 
-SingleClass = Literal["plastic", "paper", "metal", "e waste"]
-
-
 class ChatRequest(BaseModel):
     message: str
-
-
-class SingleObjectResult(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    class_: SingleClass = Field(alias="class")
 
 
 def verify_friend_access(
@@ -88,30 +76,7 @@ async def read_image(image: UploadFile):
     return image_bytes
 
 
-def extract_json(text: str):
-    text = text.strip()
-
-    if text.startswith("```"):
-        text = re.sub(r"^```json", "", text)
-        text = re.sub(r"^```", "", text)
-        text = re.sub(r"```$", "", text)
-        text = text.strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-
-        if not match:
-            raise HTTPException(
-                status_code=500,
-                detail="Model did not return valid JSON",
-            )
-
-        return json.loads(match.group(0))
-
-
-def classify_image_with_prompt(
+def extract_text_from_image(
     image_bytes: bytes,
     mime_type: str,
     prompt: str,
@@ -127,17 +92,15 @@ def classify_image_with_prompt(
             ),
             prompt,
         ],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
+        # Removed JSON formatting constraints to allow raw text output
     )
 
-    return extract_json(response.text)
+    return response.text.strip()
 
 
 @app.get("/")
 def home():
-    return {"message": "Gemini proxy server is running"}
+    return {"message": "Gemini Prescription OCR proxy server is running"}
 
 
 @app.get("/health")
@@ -174,71 +137,44 @@ def chat(
         raise HTTPException(status_code=500, detail=str(error))
 
 
-@app.post("/classify/single-object")
-async def classify_single_object(
+@app.post("/extract-prescription")
+async def extract_prescription_text(
     image: UploadFile = File(...),
     authorized: bool = Depends(verify_friend_access),
 ):
     image_bytes = await read_image(image)
 
+    # High-performance OCR Prompt tailored for medical prescriptions
     prompt = """
-You are a strict single-object image classification API for waste/material sorting.
+You are an expert Medical Transcriptionist and advanced OCR (Optical Character Recognition) system.
+Your sole task is to extract every piece of text from the provided medical prescription image EXACTLY as it appears.
 
-Your task:
-Analyze the image, identify the main visible object internally, then classify that object into exactly one of the allowed material classes.
+CRITICAL INSTRUCTIONS FOR FORMATTING AND EXTRACTION:
+1. SPATIAL PRESERVATION: You MUST preserve the exact visual layout of the text. 
+   - Use newlines (Enter) to match line breaks in the document.
+   - Use spaces and indentation to visually align text, dosages, and instructions exactly as written.
+2. MEDICAL ACCURACY: Pay extremely close attention to:
+   - Patient Information (Name, Age, Date, Vitals).
+   - Medication Names (Spell them to the best of your ability, even if handwritten).
+   - Dosages (e.g., 500mg, 10ml, 1 tablet).
+   - Frequencies / Medical Abbreviations (e.g., OD, BD, BID, TID, SOS, x 5 days).
+   - Doctor's Special Instructions (e.g., "Take after meals", "Empty stomach").
+3. NO HALLUCINATION: Transcribe ONLY what is visible. If a word is completely illegible due to poor handwriting, write "[illegible]" in its place. Do not guess medications if you are entirely unsure.
+4. NO CONVERSATIONAL TEXT: Do not include introductory or concluding remarks like "Here is the extracted text" or "I found the following". 
+5. OUTPUT: Output pure, formatted, raw text.
 
-Important:
-You must first understand what the object is, but you must NOT output the object name.
-Only output the final material class in JSON.
-
-Core rules:
-- Focus on ONE main object only.
-- Identify the main object internally before deciding the class.
-- The main object is usually the largest, clearest, most central, or most visually important object.
-- Ignore background, hands, tables, floors, shadows, logos, labels, text, and secondary objects.
-- Do NOT describe the object.
-- Do NOT return the object name.
-- Return ONLY valid JSON.
-- Do NOT use markdown.
-- Do NOT explain.
-- Do NOT add extra keys.
-- The JSON must match the schema exactly.
-
-Allowed classes:
-- e waste
-- metal
-- paper
-- plastic
-
-Classification rules:
-- "class" must be exactly one of the allowed classes.
-- Never output any class outside the allowed list.
-- First identify what the object is, then map it to the closest allowed material class.
-- If the object is made of paper, sticky notes, cardboard, notebook paper, books, napkins, tissues, paper cups, or other paper-based material, classify it as "paper".
-- If the object is an electronic device, cable, charger, battery, circuit board, phone, keyboard, mouse, remote, appliance, or gadget, classify it as "e waste" even if plastic or metal is visible.
-- If the object is a bottle, container, wrapper, bag, packaging, cap, synthetic item, or clearly plastic-based object, classify it as "plastic".
-- If the object is a can, foil, tin, tool, metal container, wire, screw, or metallic object, classify it as "metal".
-- If an object contains multiple materials, classify it by the dominant visible material.
-
-Required output format:
-{
-  "class": "plastic"
-}
+Transcribe the prescription now:
 """
 
     try:
-        raw_result = classify_image_with_prompt(
+        extracted_text = extract_text_from_image(
             image_bytes=image_bytes,
             mime_type=image.content_type,
             prompt=prompt,
         )
 
-        result = SingleObjectResult.model_validate(raw_result)
-
-        return result.model_dump(by_alias=True)
-
-    except ValidationError as error:
-        raise HTTPException(status_code=500, detail=error.errors())
+        # Returning the plain formatted string inside a standard JSON response wrapper
+        return {"extracted_text": extracted_text}
 
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
