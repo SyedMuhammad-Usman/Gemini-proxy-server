@@ -1,5 +1,5 @@
 [project]
-name = "gemini-proxy-server"
+name = "work"
 version = "0.2.0"
 description = "A FastAPI proxy server that wraps Google Gemini API (direct) and Vertex AI, so friends can use your AI quota without seeing your real API keys."
 readme = "README.md"
