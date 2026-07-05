@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# API Keys - never commit
+.env
+
+# Let Railway use requirements.txt only, not uv
+pyproject.toml
+uv.lock
