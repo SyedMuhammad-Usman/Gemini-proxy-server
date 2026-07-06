@@ -19,7 +19,7 @@ app = FastAPI()
 
 usage_count = 0
 # Model: can be overridden via GEMINI_MODEL env var
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-002")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 
 SingleClass = Literal["waste", "glass", "metal", "plastic", "textile", "wood"]
