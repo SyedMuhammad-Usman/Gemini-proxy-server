@@ -6,11 +6,12 @@ from datetime import datetime
 from typing import Literal
 
 import google.auth.transport.requests
-import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File
 from google.oauth2 import credentials as google_credentials
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -130,15 +131,14 @@ def _get_access_token() -> str:
             detail=f"Unsupported credential type: '{cred_type}'. Expected 'authorized_user' or 'service_account'.",
         )
 
-    request = google.auth.transport.requests.Request()
-    creds.refresh(request)
-    return creds.token
+    # The SDK handles the refresh itself, so we just return the creds object
+    return creds
 
 
-def _vertex_generate(parts: list[dict], response_json: bool = False) -> str:
+def get_gemini_client() -> genai.Client:
     """
-    Call Vertex AI Gemini REST API with OAuth2 Bearer token.
-    Works with both user credentials (gcloud) and service accounts.
+    Get the official Gemini client using the OAuth2 credentials.
+    This safely handles Vertex AI with User Credentials.
     """
     project = os.getenv("VERTEX_PROJECT")
     location = os.getenv("VERTEX_LOCATION", "us-central1")
@@ -146,38 +146,14 @@ def _vertex_generate(parts: list[dict], response_json: bool = False) -> str:
     if not project:
         raise HTTPException(status_code=500, detail="VERTEX_PROJECT env var is missing")
 
-    token = _get_access_token()
+    creds = _get_access_token()
 
-    url = (
-        f"https://{location}-aiplatform.googleapis.com/v1/"
-        f"projects/{project}/locations/{location}/"
-        f"publishers/google/models/{GEMINI_MODEL}:generateContent"
+    return genai.Client(
+        vertexai=True,
+        credentials=creds,
+        project=project,
+        location=location,
     )
-
-    payload: dict = {"contents": [{"role": "user", "parts": parts}]}
-    if response_json:
-        payload["generationConfig"] = {"responseMimeType": "application/json"}
-
-    try:
-        resp = httpx.post(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            json=payload,
-            timeout=60.0,
-        )
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=500, detail=f"Network error: {exc}")
-
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Vertex AI {resp.status_code}: {resp.text}",
-        )
-
-    try:
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        raise HTTPException(status_code=500, detail=f"Unexpected response: {resp.text}")
 
 
 async def read_image(image: UploadFile):
@@ -226,13 +202,23 @@ def classify_image_with_prompt(
     mime_type: str,
     prompt: str,
 ) -> dict:
-    image_b64 = base64.b64encode(image_bytes).decode()
-    parts = [
-        {"inlineData": {"mimeType": mime_type, "data": image_b64}},
-        {"text": prompt},
-    ]
-    text = _vertex_generate(parts, response_json=True)
-    return extract_json(text)
+    client = get_gemini_client()
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=[
+            types.Part.from_bytes(
+                data=image_bytes,
+                mime_type=mime_type,
+            ),
+            prompt,
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+        ),
+    )
+
+    return extract_json(response.text)
 
 
 @app.get("/")
@@ -261,8 +247,14 @@ def chat(
     authorized: bool = Depends(verify_friend_access),
 ):
     try:
-        reply = _vertex_generate([{"text": request.message}])
-        return {"reply": reply}
+        client = get_gemini_client()
+
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=request.message,
+        )
+
+        return {"reply": response.text}
 
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
