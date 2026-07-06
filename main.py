@@ -5,9 +5,11 @@ import re
 from datetime import datetime
 from typing import Literal
 
+import google.auth.transport.requests
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File
+from google.oauth2 import credentials as google_credentials
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
 
 load_dotenv()
@@ -85,24 +87,66 @@ def verify_friend_access(
     return True
 
 
+def _get_access_token() -> str:
+    """
+    Get a valid short-lived OAuth2 Bearer token from credentials stored in
+    GOOGLE_APPLICATION_CREDENTIALS_JSON env var.
+
+    Supports both:
+      - 'authorized_user' (from: gcloud auth application-default login)
+      - 'service_account'  (from: GCP Console → IAM → Service Accounts → Keys)
+    """
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    if not creds_json:
+        raise HTTPException(
+            status_code=500,
+            detail="GOOGLE_APPLICATION_CREDENTIALS_JSON env var is missing",
+        )
+
+    try:
+        creds_dict = json.loads(creds_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON")
+
+    cred_type = creds_dict.get("type")
+
+    if cred_type == "authorized_user":
+        creds = google_credentials.Credentials(
+            token=None,
+            refresh_token=creds_dict["refresh_token"],
+            client_id=creds_dict["client_id"],
+            client_secret=creds_dict["client_secret"],
+            token_uri="https://oauth2.googleapis.com/token",
+        )
+    elif cred_type == "service_account":
+        from google.oauth2 import service_account
+        creds = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unsupported credential type: '{cred_type}'. Expected 'authorized_user' or 'service_account'.",
+        )
+
+    request = google.auth.transport.requests.Request()
+    creds.refresh(request)
+    return creds.token
+
+
 def _vertex_generate(parts: list[dict], response_json: bool = False) -> str:
     """
-    Call Vertex AI Gemini REST API directly using GCP API key.
-    Works with Cloud Console bound API keys (org-policy friendly).
-
-    Required env vars:
-        GEMINI_API_KEY  – your GCP / Vertex AI Express API key
-        VERTEX_PROJECT  – your GCP project ID
-        VERTEX_LOCATION – GCP region (default: us-central1)
+    Call Vertex AI Gemini REST API with OAuth2 Bearer token.
+    Works with both user credentials (gcloud) and service accounts.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
     project = os.getenv("VERTEX_PROJECT")
     location = os.getenv("VERTEX_LOCATION", "us-central1")
 
-    if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY env var is missing")
     if not project:
         raise HTTPException(status_code=500, detail="VERTEX_PROJECT env var is missing")
+
+    token = _get_access_token()
 
     url = (
         f"https://{location}-aiplatform.googleapis.com/v1/"
@@ -115,7 +159,12 @@ def _vertex_generate(parts: list[dict], response_json: bool = False) -> str:
         payload["generationConfig"] = {"responseMimeType": "application/json"}
 
     try:
-        resp = httpx.post(url, params={"key": api_key}, json=payload, timeout=60.0)
+        resp = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload,
+            timeout=60.0,
+        )
     except httpx.RequestError as exc:
         raise HTTPException(status_code=500, detail=f"Network error: {exc}")
 
