@@ -1,14 +1,14 @@
+import base64
 import json
 import os
 import re
 from datetime import datetime
 from typing import Literal
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
-from google import genai
-from google.genai import types
 
 load_dotenv()
 
@@ -85,27 +85,50 @@ def verify_friend_access(
     return True
 
 
-def get_gemini_client():
-    gemini_key = os.getenv("GEMINI_API_KEY")
+def _vertex_generate(parts: list[dict], response_json: bool = False) -> str:
+    """
+    Call Vertex AI Gemini REST API directly using GCP API key.
+    Works with Cloud Console bound API keys (org-policy friendly).
+
+    Required env vars:
+        GEMINI_API_KEY  – your GCP / Vertex AI Express API key
+        VERTEX_PROJECT  – your GCP project ID
+        VERTEX_LOCATION – GCP region (default: us-central1)
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
     project = os.getenv("VERTEX_PROJECT")
     location = os.getenv("VERTEX_LOCATION", "us-central1")
 
-    if not gemini_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is missing")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY env var is missing")
+    if not project:
+        raise HTTPException(status_code=500, detail="VERTEX_PROJECT env var is missing")
 
-    # Vertex AI Express mode: uses GCP API key with Vertex AI backend.
-    # This works with Cloud Console API keys bound to a service account
-    # (org policy friendly — no service account JSON key file needed).
-    if project:
-        return genai.Client(
-            vertexai=True,
-            api_key=gemini_key,
-            project=project,
-            location=location,
+    url = (
+        f"https://{location}-aiplatform.googleapis.com/v1/"
+        f"projects/{project}/locations/{location}/"
+        f"publishers/google/models/{GEMINI_MODEL}:generateContent"
+    )
+
+    payload: dict = {"contents": [{"role": "user", "parts": parts}]}
+    if response_json:
+        payload["generationConfig"] = {"responseMimeType": "application/json"}
+
+    try:
+        resp = httpx.post(url, params={"key": api_key}, json=payload, timeout=60.0)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=500, detail=f"Network error: {exc}")
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Vertex AI {resp.status_code}: {resp.text}",
         )
 
-    # Fallback: standard Gemini Developer API key (AI Studio keys)
-    return genai.Client(api_key=gemini_key)
+    try:
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        raise HTTPException(status_code=500, detail=f"Unexpected response: {resp.text}")
 
 
 async def read_image(image: UploadFile):
@@ -153,24 +176,14 @@ def classify_image_with_prompt(
     image_bytes: bytes,
     mime_type: str,
     prompt: str,
-):
-    client = get_gemini_client()
-
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[
-            types.Part.from_bytes(
-                data=image_bytes,
-                mime_type=mime_type,
-            ),
-            prompt,
-        ],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
-    )
-
-    return extract_json(response.text)
+) -> dict:
+    image_b64 = base64.b64encode(image_bytes).decode()
+    parts = [
+        {"inlineData": {"mimeType": mime_type, "data": image_b64}},
+        {"text": prompt},
+    ]
+    text = _vertex_generate(parts, response_json=True)
+    return extract_json(text)
 
 
 @app.get("/")
@@ -199,14 +212,8 @@ def chat(
     authorized: bool = Depends(verify_friend_access),
 ):
     try:
-        client = get_gemini_client()
-
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=request.message,
-        )
-
-        return {"reply": response.text}
+        reply = _vertex_generate([{"text": request.message}])
+        return {"reply": reply}
 
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
