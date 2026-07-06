@@ -12,6 +12,16 @@ from vertexai.generative_models import GenerativeModel, Part, GenerationConfig
 
 load_dotenv()
 
+# ── Service-account credentials from env var (for Railway/Cloud deployments) ──
+# Set GOOGLE_CREDENTIALS_JSON in Railway Variables to the full contents of
+# your service account JSON key file.
+_creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if _creds_json:
+    _creds_path = "/tmp/google_credentials.json"
+    with open(_creds_path, "w") as _f:
+        _f.write(_creds_json)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _creds_path
+
 app = FastAPI()
 
 usage_count = 0
