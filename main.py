@@ -15,8 +15,8 @@ load_dotenv()
 app = FastAPI()
 
 usage_count = 0
-GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+# Model: can be overridden via GEMINI_MODEL env var
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite-preview-06-17")
 
 
 SingleClass = Literal["waste", "glass", "metal", "plastic", "textile", "wood"]
@@ -87,10 +87,24 @@ def verify_friend_access(
 
 def get_gemini_client():
     gemini_key = os.getenv("GEMINI_API_KEY")
+    project = os.getenv("VERTEX_PROJECT")
+    location = os.getenv("VERTEX_LOCATION", "us-central1")
 
     if not gemini_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is missing")
 
+    # Vertex AI Express mode: uses GCP API key with Vertex AI backend.
+    # This works with Cloud Console API keys bound to a service account
+    # (org policy friendly — no service account JSON key file needed).
+    if project:
+        return genai.Client(
+            vertexai=True,
+            api_key=gemini_key,
+            project=project,
+            location=location,
+        )
+
+    # Fallback: standard Gemini Developer API key (AI Studio keys)
     return genai.Client(api_key=gemini_key)
 
 
