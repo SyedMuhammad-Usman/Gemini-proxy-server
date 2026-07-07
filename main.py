@@ -22,8 +22,8 @@ usage_count = 0
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 
 
-SingleClass = Literal["waste", "glass", "metal", "plastic", "textile", "wood"]
-MultiClass = Literal["paper", "biodegradable", "plastic", "glass", "metal", "cardboard"]
+SingleClass = Literal["e-waste", "glass", "metal", "plastic", "textile", "wood"]
+MultiClass = Literal["e-waste", "textile", "plastic", "glass", "metal", "wood"]
 FoodClass = Literal["waste", "non_waste"]
 
 
