@@ -291,7 +291,7 @@ Core rules:
 - The JSON must match the schema exactly.
 
 Allowed classes:
-- e waste
+- e-waste
 - glass
 - metal
 - plastic
@@ -305,7 +305,7 @@ Classification rules:
 - First identify what the object is, then map it to the closest allowed material class.
 - If the object is made of paper, sticky notes, cardboard-like paper, notebook paper, books, napkins, tissues, paper cups, or other paper-based material, classify it as "wood" because paper comes from wood and there is no separate paper class.
 - If the object is made of wood, plywood, bamboo, paper, or paper-derived material, classify it as "wood".
-- If the object is an electronic device, cable, charger, battery, circuit board, phone, keyboard, mouse, remote, appliance, or gadget, classify it as "e waste" even if plastic or metal is visible.
+- If the object is an electronic device, cable, charger, battery, circuit board, phone, keyboard, mouse, remote, appliance, or gadget, classify it as "e-waste" even if plastic or metal is visible.
 - If the object is a bottle, container, wrapper, bag, packaging, cap, synthetic item, or clearly plastic-based object, classify it as "plastic".
 - If the object is a glass bottle, jar, cup, window piece, mirror piece, or transparent/reflective glass object, classify it as "glass".
 - If the object is a can, foil, tin, tool, metal container, wire, screw, or metallic object, classify it as "metal".
@@ -316,7 +316,7 @@ Classification rules:
 Recyclability rules:
 - Set "recyclable": true if the material is commonly recyclable or recoverable.
 - Set "recyclable": false if the object appears contaminated, dirty, mixed in a non-recyclable way, or unlikely to be accepted in standard recycling.
-- For "e waste", use true because it is recyclable through specialized e-waste recycling.
+- For "e-waste", use true because it is recyclable through specialized e-waste recycling.
 - For clean glass, metal, plastic, wood, or textile, use true when visually reasonable.
 - Use false when the visual condition suggests it should not be recycled.
 
@@ -387,12 +387,12 @@ Core detection rules:
 - The JSON must match the schema exactly.
 
 Allowed classes:
-- paper/wood
-- biodegradable
+- e-waste
+- textile
 - plastic
 - glass
 - metal
-- cardboard
+- wood
 
 Classification rules:
 - For every object, "class" must be exactly one of the allowed classes.
@@ -403,14 +403,12 @@ Classification rules:
 - If an object has mixed materials, choose the material that appears most visually dominant.
 
 Material mapping rules:
-- Use "paper/wood" for paper, sticky notes, sheets, newspapers, books, notebooks, receipts, napkins, tissues, wooden items, bamboo items, plywood, paper cups, and general paper-based or wood-based objects.
-- Use "cardboard" only for cardboard boxes, cartons, corrugated board, thick packaging board, delivery boxes, cereal boxes, and similar cardboard packaging.
-- Use "biodegradable" for food waste, fruit, vegetables, leaves, plants, flowers, organic scraps, compostable natural matter, and other biological/organic waste.
+- Use "e-waste" for electronic devices, cables, chargers, batteries, circuit boards, phones, keyboards, mice, remotes, appliances, or gadgets.
+- Use "wood" for wood, plywood, bamboo, paper, cardboard, and paper-derived materials (because paper comes from wood and there is no separate paper class).
 - Use "plastic" for plastic bottles, wrappers, bags, containers, caps, straws, plastic packaging, synthetic objects, and polymer-based items.
 - Use "glass" for glass bottles, jars, cups, broken glass, mirrors, and transparent or reflective glass objects.
 - Use "metal" for cans, foil, tins, tools, screws, wires, metal containers, aluminum items, steel items, and metallic objects.
-- If the object is paper-like but not thick cardboard, classify it as "paper/wood".
-- If the object is thick packaging board or a box/carton, classify it as "cardboard".
+- Use "textile" for clothing, fabric, cloth, towel, rope, carpet, bags made of fabric, or soft woven materials.
 - If uncertain, choose the most likely class based on visible evidence and lower the confidence.
 
 Counting rules:
